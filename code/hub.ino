@@ -5,13 +5,17 @@
 #include <SPI.h>
 #include <RF24.h>
 #include <nRF24L01.h>
+#include <LiquidCrystal_I2C.h>
+#include <Wire.h>
 
 const int maxRetries = 20;
 char* host = "192.168.1.13";
 int port = 80;
 const char* ssid = "DemoHub";
-const char* password = "demopassword";
+const char* password = "demopass";
 const int pin = 5;
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 ESP8266WebServer server(80);
 
@@ -29,6 +33,10 @@ unsigned long time1;
 
 void reset() {
   clearEeprom();
+  lcd.clear();
+  lcd.backlight();
+  lcd.print("Resetting....");
+  delay(2000);
   ESP.restart();
 }
 
@@ -39,8 +47,15 @@ void setup() {
   pinMode(pin, INPUT_PULLUP);
   attachInterrupt(pin, reset, CHANGE);
 
+  Wire.begin(0, 2);
+  lcd.begin();
+  lcd.backlight();
+  lcd.print("Startup...");
+
   EEPROM.begin(512);
-  Serial.println("Startup");
+  Serial.println("Startup...");
+
+  delay(2000);
 
   String staSsid = "";
   for (int i = 0; i < 32; ++i) {
@@ -77,15 +92,36 @@ void setup() {
       
       WiFi.softAPdisconnect(true);
 
+      lcd.clear();
+      lcd.backlight();
+      lcd.print("Connected!");
+
       radio.begin();
       radio.openWritingPipe(addr);
       radio.openReadingPipe(1,addr);
       radio.startListening();
 
+      delay(2000);
+      lcd.clear();
+      lcd.noBacklight();
+
     } else {
+      lcd.clear();
+      lcd.backlight();
+      lcd.print("Connect failed!");
       goAP = true;
     }
   } else {
+    lcd.clear();
+    lcd.backlight();
+    lcd.print("Go setup the hub");
+    delay(2000);
+    lcd.clear();
+    lcd.print(ssid);
+    lcd.print("|");
+    lcd.print(password);
+    lcd.setCursor(0,1);
+    lcd.print(WiFi.softAPIP());
     goAP = true;
   }
 
@@ -109,6 +145,10 @@ bool testSta(String staSsid, String staPassword) {
   Serial.print("Connecting to [");
   Serial.print(staSsid);
   Serial.println("]");  
+
+  lcd.clear();
+  lcd.backlight();
+  lcd.print("Connecting...");
 
   WiFi.begin(staSsid.c_str(), staPassword.c_str());
 
@@ -199,10 +239,19 @@ void loop() {
         Serial.print("Connect to ");
         Serial.print(host);
         Serial.println(" failed");
+
+        lcd.clear();
+        lcd.backlight();
+        lcd.print("Request failed!");
+
         return;
       } else {
         Serial.print("Connected to ");
         Serial.println(host);
+
+        lcd.clear();
+        lcd.print("Working...");
+        lcd.noBacklight();
       }
   
       String url = "/smartbots/api/";
@@ -225,11 +274,20 @@ void loop() {
   
       while (client.available() == 0) {
         if (millis() - timeout > 5000) {
-          Serial.println(">>> Client Timeout <<<");
+          Serial.println("Request failed!");
           client.stop();
+
+          lcd.clear();
+          lcd.backlight();
+          lcd.print("Request failed!");
+
           return;
         }
       }
+
+      lcd.clear();
+      lcd.print("Working...");
+      lcd.noBacklight();
     }
 
     if ((unsigned long)(millis()-time1) > 500) {
@@ -241,10 +299,19 @@ void loop() {
         Serial.print("Connect to ");
         Serial.print(host);
         Serial.println(" failed");
+
+        lcd.clear();
+        lcd.backlight();
+        lcd.print("Request failed!");
+
         return;
       } else {
         Serial.print("Connected to ");
         Serial.println(host);
+
+        lcd.clear();
+        lcd.print("Working...");
+        lcd.noBacklight();
       }
     
       String url = "/smartbots/api/";
@@ -264,21 +331,31 @@ void loop() {
         if (millis() - timeout > 5000) {
           Serial.println(">>> Client Timeout <<<");
           client.stop();
+
+          lcd.clear();
+          lcd.backlight();
+          lcd.print("Request failed!");
+
           return;
         }
       }
-    
+
+      lcd.clear();
+      lcd.print("Working...");
+      lcd.noBacklight();
+
       if (client.find("\r\n\r\n")) {
         while (client.available()){
           content = client.readStringUntil('\n');
         }
       }
+
       StaticJsonBuffer<200> jsonBuffer;
       JsonObject& data = jsonBuffer.parseObject(content);
       Serial.print("DATA FROM ESP: ");
       data.printTo(Serial);
       Serial.println();
-//      Serial.println(content);
+      // Serial.println(content);
     
       for (int i = 0; i < data["c"]; i++) {
         char y[] = {};
@@ -290,6 +367,7 @@ void loop() {
         radio.write(up,11);
         radio.startListening();
       }
+
     time1 = millis();
     }
   }
