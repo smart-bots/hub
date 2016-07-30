@@ -9,11 +9,11 @@
 #include <Wire.h>
 
 const int maxRetries = 20;
-char* host = "192.168.1.13";
+char* host = "192.168.1.10";
 int port = 80;
 const char* ssid = "DemoHub";
 const char* password = "demopass";
-const int pin = 5;
+const int btnPin = 5;
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
@@ -23,13 +23,22 @@ String hubToken;
 
 RF24 radio(4,15); // ce,cs
 
-const uint64_t addr = 0x0a0c0a0c0aLL;
+const uint64_t pipes[2] = {0xF0F0F0F0E1LL, 0xF0F0F0F0D2LL};
+
+struct smartbot {
+  char token[11];
+  boolean state;
+};
+
+smartbot trans,recei;
 
 String content;
 char down[13],key[11],tus,hard;
 boolean goAP = false;
 
 unsigned long time1;
+
+//----------------------------------------------------------------------------------------
 
 void reset() {
   clearEeprom();
@@ -40,12 +49,14 @@ void reset() {
   ESP.restart();
 }
 
+//----------------------------------------------------------------------------------------
+
 void setup() {
   
   Serial.begin(115200);
 
-  pinMode(pin, INPUT_PULLUP);
-  attachInterrupt(pin, reset, CHANGE);
+  pinMode(btnPin, INPUT_PULLUP);
+  attachInterrupt(btnPin, reset, CHANGE);
 
   Wire.begin(0, 2);
   lcd.begin();
@@ -97,8 +108,12 @@ void setup() {
       lcd.print("Connected!");
 
       radio.begin();
-      radio.openWritingPipe(addr);
-      radio.openReadingPipe(1,addr);
+      radio.setAutoAck(true);
+      radio.enableAckPayload();
+      radio.enableDynamicPayloads();
+      radio.setRetries(15,15);
+      radio.openReadingPipe(1,pipes[1]);
+      radio.openWritingPipe(pipes[0]);
       radio.startListening();
 
       delay(2000);
@@ -130,15 +145,19 @@ void setup() {
   }
 }
 
+//----------------------------------------------------------------------------------------
+
 void clearEeprom() {
   for (int i = 0; i < 146; ++i) { EEPROM.write(i, 0); }
   EEPROM.commit();
   Serial.println("Cleared Eeprom");
 }
 
+//----------------------------------------------------------------------------------------
+
 bool testSta(String staSsid, String staPassword) {
   WiFi.mode(WIFI_AP);
-  // WiFi.disconnect();
+  WiFi.disconnect();
 
   int retries = 0;
 
@@ -167,6 +186,8 @@ bool testSta(String staSsid, String staPassword) {
   Serial.println("Failed");
   return false;
 }
+
+//----------------------------------------------------------------------------------------
 
 void startAP(void) {
   Serial.println("Start SoftAP");
@@ -218,19 +239,18 @@ void startAP(void) {
   server.begin();
 }
 
+//----------------------------------------------------------------------------------------
+
 void loop() {
   if (goAP) {
     server.handleClient();
   } else {
     if (radio.available()) {
-
-      memset(down,' ',sizeof(down));
-      radio.read(down,sizeof(down));
-      Serial.print("DATA FROM NRF: ");
-      Serial.println(down);
-      strncpy(key,down,10);
-      tus = down[10];
-      hard = down[11];
+      radio.read(&recei,sizeof(recei));
+      Serial.println("Got from Nrf: ");
+      Serial.println(recei.token);
+      Serial.println(recei.state);
+      Serial.println("END");
   
       WiFiClient client;
       client.stop();
@@ -257,11 +277,10 @@ void loop() {
       String url = "/smartbots/api/";
       url += hubToken;
       url += "/up/";
-      url += key;
+      url += recei.token;
       url += "/";
-      url += tus;
-      url += "/";
-      url += hard;
+      url += recei.state;
+      url += "/1";
   
       Serial.print("Requesting URL: ");
       Serial.println(url);
@@ -362,9 +381,84 @@ void loop() {
         String str;
         str=String(i);
         str.toCharArray(y,10);
-        const char* up = data[y];
+        strncpy(trans.token,data[y]["token"],10);
+        trans.state = data[y]["state"];
         radio.stopListening();
-        radio.write(up,11);
+
+        if (radio.write(&trans,sizeof(trans))) {
+          Serial.println("Tx successfully!");
+          if (radio.isAckPayloadAvailable() || radio.available())
+          {
+            radio.read(&recei,sizeof(recei));
+            Serial.println("Received ack payload:");
+            Serial.println(recei.token);
+            Serial.println(recei.state);
+            Serial.println("END");
+        
+            WiFiClient client;
+            client.stop();
+        
+            if (!client.connect(host, port)) {
+              Serial.print("Connect to ");
+              Serial.print(host);
+              Serial.println(" failed");
+      
+              lcd.clear();
+              lcd.backlight();
+              lcd.print("Request failed!");
+      
+              return;
+            } else {
+              Serial.print("Connected to ");
+              Serial.println(host);
+      
+              lcd.clear();
+              lcd.print("Working...");
+              lcd.noBacklight();
+            }
+        
+            String url = "/smartbots/api/";
+            url += hubToken;
+            url += "/up/";
+            url += recei.token;
+            url += "/";
+            url += recei.state;
+            url += "/0";
+        
+            Serial.print("Requesting URL: ");
+            Serial.println(url);
+        
+            client.print(String("GET ") + url + " HTTP/1.1\r\n" +
+                         "Host: " + host + "\r\n" +
+                         "Connection: close\r\n\r\n");
+        
+            unsigned long timeout = millis();
+        
+            while (client.available() == 0) {
+              if (millis() - timeout > 5000) {
+                Serial.println("Request failed!");
+                client.stop();
+      
+                lcd.clear();
+                lcd.backlight();
+                lcd.print("Request failed!");
+      
+                return;
+              }
+            }
+      
+            lcd.clear();
+            lcd.print("Working...");
+            lcd.noBacklight();
+
+          }
+          else
+          {
+            Serial.println("No ack payload received!");
+          }
+        } else {
+          Serial.println("Failed tx...");
+        }
         radio.startListening();
       }
 
