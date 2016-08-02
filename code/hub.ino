@@ -9,7 +9,7 @@
 #include <Wire.h>
 
 const int maxRetries = 20;
-char* host = "192.168.1.10";
+char* host = "192.168.1.11";
 int port = 80;
 const char* ssid = "DemoHub";
 const char* password = "demopass";
@@ -25,16 +25,24 @@ RF24 radio(4,15); // ce,cs
 
 const uint64_t pipes[2] = {0xF0F0F0F0E1LL, 0xF0F0F0F0D2LL};
 
-struct smartbot {
+
+struct recei {
+  byte type;
   char token[11];
   boolean state;
-};
+  float data;
+} recei;
 
-smartbot trans,recei;
+struct trans {
+  char token[11];
+  boolean state;
+} trans;
 
 String content;
 char down[13],key[11],tus,hard;
 boolean goAP = false;
+
+String data1;
 
 unsigned long time1;
 
@@ -248,8 +256,10 @@ void loop() {
     if (radio.available()) {
       radio.read(&recei,sizeof(recei));
       Serial.println("Got from Nrf: ");
+      Serial.println(recei.type);
       Serial.println(recei.token);
       Serial.println(recei.state);
+      Serial.println(recei.data);
       Serial.println("END");
   
       WiFiClient client;
@@ -274,20 +284,19 @@ void loop() {
         lcd.noBacklight();
       }
   
-      String url = "/smartbots/api/";
-      url += hubToken;
-      url += "/up/";
-      url += recei.token;
-      url += "/";
-      url += recei.state;
-      url += "/1";
+      String url = "/smartbots/api/up";
+      data1 = "hubToken=" + String(hubToken) + "&botToken=" + String(recei.token) + "&status=" + String(recei.state) + "&hard=1";
   
       Serial.print("Requesting URL: ");
       Serial.println(url);
   
-      client.print(String("GET ") + url + " HTTP/1.1\r\n" +
-                   "Host: " + host + "\r\n" +
-                   "Connection: close\r\n\r\n");
+      client.print(String("POST ") + url + " HTTP/1.1\r\n" +
+             "Host: " + host + "\r\n" +
+             "Accept: *" + "/" + "*\r\n" +
+             "Content-Length: " + data1.length() + "\r\n" +
+             "Content-Type: application/x-www-form-urlencoded\r\n" +
+             "Connection: close\r\n" + 
+             "\r\n" + data1);
   
       unsigned long timeout = millis();
   
@@ -333,16 +342,20 @@ void loop() {
         lcd.noBacklight();
       }
     
-      String url = "/smartbots/api/";
-      url += hubToken;
-      url += "/down";
+      String url = "/smartbots/api/down";
     
       Serial.print("Requesting URL: ");
       Serial.println(url);
-    
-      client.print(String("GET ") + url + " HTTP/1.1\r\n" +
+      
+      data1 = "hubToken="+ String(hubToken);
+      
+      client.print(String("POST ") + url + " HTTP/1.1\r\n" +
                    "Host: " + host + "\r\n" +
-                   "Connection: close\r\n\r\n");
+                   "Accept: *" + "/" + "*\r\n" +
+                   "Content-Length: " + data1.length() + "\r\n" +
+                   "Content-Type: application/x-www-form-urlencoded\r\n" +
+                   "Connection: close\r\n" + 
+                   "\r\n" + data1);
     
       unsigned long timeout = millis();
     
@@ -391,8 +404,10 @@ void loop() {
           {
             radio.read(&recei,sizeof(recei));
             Serial.println("Received ack payload:");
+            Serial.println(recei.type);
             Serial.println(recei.token);
             Serial.println(recei.state);
+            Serial.println(recei.data);
             Serial.println("END");
         
             WiFiClient client;
@@ -417,20 +432,20 @@ void loop() {
               lcd.noBacklight();
             }
         
-            String url = "/smartbots/api/";
-            url += hubToken;
-            url += "/up/";
-            url += recei.token;
-            url += "/";
-            url += recei.state;
-            url += "/0";
+            String url = "/smartbots/api/up";
+
+            data1 = "hubToken=" + String(hubToken) + "&botToken=" + String(recei.token) + "&status=" + String(recei.state) + "&hard=0";
         
             Serial.print("Requesting URL: ");
             Serial.println(url);
         
-            client.print(String("GET ") + url + " HTTP/1.1\r\n" +
-                         "Host: " + host + "\r\n" +
-                         "Connection: close\r\n\r\n");
+            client.print(String("POST ") + url + " HTTP/1.1\r\n" +
+                   "Host: " + host + "\r\n" +
+                   "Accept: *" + "/" + "*\r\n" +
+                   "Content-Length: " + data1.length() + "\r\n" +
+                   "Content-Type: application/x-www-form-urlencoded\r\n" +
+                   "Connection: close\r\n" + 
+                   "\r\n" + data1);
         
             unsigned long timeout = millis();
         
